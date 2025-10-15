@@ -48,113 +48,6 @@ def get_available_gpu():
     return available_gpu
 
 
-def visualize_and_save(original_img_rgb, recon_img_rgb, anomaly_map_normalized,
-                       binary_mask, save_path_base):
-    """
-    將推論結果可視化並儲存成圖片。
-
-    Args:
-        original_img_rgb (np.ndarray): 原始輸入影像 (H, W, 3)，RGB格式，值域 [0, 255]。
-        recon_img_rgb (np.ndarray): 重建後的影像 (H, W, 3)，RGB格式，值域 [0, 255]。
-        anomaly_map_normalized (np.ndarray): 異常分數圖 (H, W)，值域 [0, 255]，8-bit 整數。
-        binary_mask (np.ndarray): 二值化的異常遮罩 (H, W)，值為 0 或 255。
-        save_path_base (str): 儲存檔案的基礎路徑與檔名 (不含副檔名)。
-    """
-    # 確保儲存目錄存在
-    save_dir = os.path.dirname(save_path_base)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir, exist_ok=True)
-
-    # 將 anomaly_map 轉換為熱力圖
-    heatmap_color = cv2.applyColorMap(anomaly_map_normalized, cv2.COLORMAP_JET)
-
-    # 將熱力圖疊加到原始影像上
-    # 因為 original_img_rgb 是 RGB，而 cv2.addWeighted 期望 BGR，所以先轉換一下
-    original_img_bgr = cv2.cvtColor(original_img_rgb, cv2.COLOR_RGB2BGR)
-    overlay = cv2.addWeighted(original_img_bgr, 0.6, heatmap_color, 0.4, 0)
-
-    # 將二值化遮罩轉為三通道，方便合併 (BGR 格式)
-    binary_mask_color = cv2.cvtColor(
-        binary_mask, cv2.COLOR_GRAY2BGR)  # 注意 binary_mask 已經是 [0, 255]
-
-    # 將四張圖拼接成一張大圖 (原始圖 | 重建圖 | 疊加熱力圖 | 二值圖)
-    # recon_img_rgb 也是 RGB，需要轉 BGR
-    combined_img = np.hstack([
-        original_img_bgr,
-        cv2.cvtColor(recon_img_rgb, cv2.COLOR_RGB2BGR), overlay,
-        binary_mask_color
-    ])
-
-    # 儲存合併後的影像
-    cv2.imwrite(f"{save_path_base}_results.png", combined_img)
-    print(f"✅ 結果已儲存至: {save_path_base}_results.png")
-
-
-# --- 修改後的 run_inference 函數 ---
-def run_inference(img_path,
-                  student_model,
-                  student_seg_model,
-                  device,
-                  save_path_base,
-                  img_dim=256):
-    # 1. 圖像預處理
-    transform = transforms.Compose([
-        transforms.Resize((img_dim, img_dim)),
-        transforms.ToTensor(),
-        # 如果你的訓練資料有正規化到 [-1, 1]，請在這裡加上 Normalize
-        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-
-    # 載入原始圖像並轉為 RGB
-    image = Image.open(img_path).convert("RGB")
-
-    # 儲存原始圖像，以便 visualize_and_save 使用 (resize 到 img_dim x img_dim)
-    # 從 PIL Image 轉為 numpy array, 並且值域為 [0, 255]
-    original_img_resized_pil = image.resize((img_dim, img_dim), Image.LANCZOS)
-    original_img_rgb_np = np.array(original_img_resized_pil)  # 值域 [0, 255]
-
-    # 將圖像轉換為模型輸入張量
-    input_tensor = transform(image).unsqueeze(0).to(device)  # 添加批次維度並移到GPU
-
-    with torch.no_grad():
-        # 2. 將圖像輸入到學生模型的重建子網路
-        student_recon_output_tensor = student_model(input_tensor)
-
-        # 3. 將重建輸出和原始輸入圖像級聯
-        joined_input_for_discriminator = torch.cat(
-            (student_recon_output_tensor.detach(), input_tensor), dim=1)
-
-        # 4. 將級聯輸入傳遞給學生模型的判別子網路
-        student_seg_logits = student_seg_model(joined_input_for_discriminator)
-
-        # 5. 處理分割輸出 (Softmax)
-        student_seg_map_sm = torch.softmax(student_seg_logits, dim=1)
-        # 提取異常通道 (假設是通道 1)
-        anomaly_map_raw = student_seg_map_sm[
-            0, 1, :, :].cpu().numpy()  # 原始值域 [0, 1]
-
-        # 將重建圖像張量轉換為 NumPy 陣列，值域 [0, 255]
-        # (C, H, W) -> (H, W, C), 然後從 [0, 1] 縮放到 [0, 255] 並轉為 uint8
-        recon_image_np = (
-            student_recon_output_tensor[0].permute(1, 2, 0).cpu().numpy() *
-            255).astype(np.uint8)
-
-        # 將 anomaly_map_raw (值域 [0, 1]) 歸一化到 [0, 255]
-        anomaly_map_normalized_uint8 = (anomaly_map_raw * 255).astype(np.uint8)
-
-        # 如果需要二值化遮罩，可以設定一個閾值
-        threshold = 0.5  # 可以調整閾值
-        binary_mask = (anomaly_map_raw > threshold).astype(
-            np.uint8) * 255  # 0或255
-
-        # 調用可視化函數
-        visualize_and_save(original_img_rgb_np, recon_image_np,
-                           anomaly_map_normalized_uint8, binary_mask,
-                           save_path_base)
-
-    return anomaly_map_raw, binary_mask  # 返回原始的 float 異常圖和二值遮罩 (方便後續指標計算)
-
-
 # =======================
 # Main Pipeline
 # =======================
@@ -195,13 +88,24 @@ def main(obj_names, args):
         student_seg_model.cuda()
         student_seg_model.eval()
 
-        dataset = MVTecDRAEM_Test_Visual_Dataset(
-            args.mvtec_root + obj_name + "/test/",
-            resize_shape=[img_dim, img_dim])
-        dataloader = DataLoader(dataset,
-                                batch_size=1,
-                                shuffle=False,
-                                num_workers=0)
+        # 建立資料集和資料載入器
+        try:
+            dataset = MVTecDRAEM_Test_Visual_Dataset(
+                args.mvtec_root, resize_shape=[img_dim, img_dim])
+            dataloader = DataLoader(dataset,
+                                    batch_size=1,
+                                    shuffle=False,
+                                    num_workers=0)
+        except Exception as e:
+            print(f"❌ 載入資料集時發生錯誤: {e}，路徑:{args.mvtec_root}")
+            continue
+
+        # 檢查 dataloader 是否為空
+        if len(dataloader) == 0:
+            print(f"❌ 警告: {obj_name} 的 dataloader 為空，跳過此類別")
+            continue
+
+        print(f"📊 資料集大小: {len(dataset)} 張圖片")
 
         total_pixel_scores = np.zeros((img_dim * img_dim * len(dataset)))
         total_gt_pixel_scores = np.zeros((img_dim * img_dim * len(dataset)))
