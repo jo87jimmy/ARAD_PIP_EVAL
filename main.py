@@ -106,7 +106,6 @@ def main(obj_names, args):
             if not existing_subdirs:
                 raise Exception(f"在 {path} 中未找到任何測試類別目錄")
 
-            # 假设数据集类会自动处理这些子目录
             dataset = MVTecDRAEM_Test_Visual_Dataset(
                 path, resize_shape=[img_dim, img_dim])
 
