@@ -172,13 +172,13 @@ def main(obj_names, args):
         student_model = ReconstructiveSubNetwork(
             in_channels=IMG_CHANNELS,
             out_channels=IMG_CHANNELS,
-            base_width=64,  # 學生重建網路較窄
+            base_width=128,  # 學生重建網路較窄
         ).to(device)
 
         student_seg_model = DiscriminativeSubNetwork(
             in_channels=IMG_SEG_CHANNELS,
             out_channels=IMG_SEG_CHANNELS_OUT,
-            base_channels=32,  # 學生重建網路較窄
+            base_channels=64,  # 學生重建網路較窄
             out_features=False,
         ).to(device)
 
