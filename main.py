@@ -138,27 +138,18 @@ def main(obj_names, args):
 
         for i_batch, sample_batched in enumerate(dataloader):
             # 建立該類別的輸出資料夾
-            # output_dir = os.path.join(save_root, obj_name, str(i_batch))
             output_dir = os.path.join(save_root, obj_name)
             print(f"📂 載輸出資料夾路徑:{output_dir}")
             os.makedirs(output_dir, exist_ok=True)  # 確保資料夾存在
 
             gray_batch = sample_batched["image"].cuda()
-            # Convert tensor to a numpy array and move it to the CPU
-            image = gray_batch.permute(0, 2, 3, 1).cpu().numpy()
 
-            # Display all images in the batch
-            for i in range(image.shape[0]):
-                plt.imshow(image[i], cmap='gray')
-                plt.title('Original Image')
-                # 存檔
-                save_path_original = f"{save_path_base}_original_heatmap_{str(i_batch)}.png"
-                plt.savefig(save_path_original,
-                            dpi=300,
-                            bbox_inches='tight',
-                            pad_inches=0.1)
-                print(f"original heatmap saved to: {save_path_original}")
-                plt.show()
+            # 獲取原始圖像（用於顯示）
+            original_image = gray_batch.permute(0, 2, 3, 1).cpu().numpy()[0]
+            # 正規化到 [0, 1] 範圍
+            original_image = (original_image - original_image.min()) / (
+                original_image.max() - original_image.min())
+
             is_normal = sample_batched["has_anomaly"].detach().numpy()[0, 0]
             anomaly_score_gt.append(is_normal)
             true_mask = sample_batched["mask"]
@@ -181,18 +172,35 @@ def main(obj_names, args):
 
             out_mask_cv = out_mask_sm[0, 1, :, :].detach().cpu().numpy()
             save_path_base = os.path.join(output_dir, obj_name)
-            plt.imshow(out_mask_cv)
-            plt.title('Predicted Anomaly Heatmap')
+
+            # 在同一個plt中顯示原圖和異常熱圖
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+            # 顯示原圖
+            ax1.imshow(original_image)
+            ax1.set_title('Original Image')
+            ax1.axis('off')
+
+            # 顯示異常熱圖
+            im = ax2.imshow(out_mask_cv, cmap='hot')
+            ax2.set_title('Predicted Anomaly Heatmap')
+            ax2.axis('off')
+
+            # 添加顏色條
+            plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+
+            plt.tight_layout()
 
             # 存檔
-            save_path_anomaly = f"{save_path_base}_anomaly_heatmap_{str(i_batch)}.png"
-            plt.savefig(save_path_anomaly,
+            save_path_combined = f"{save_path_base}_combined_{str(i_batch)}.png"
+            plt.savefig(save_path_combined,
                         dpi=300,
                         bbox_inches='tight',
                         pad_inches=0.1)
-            print(f"Anomaly heatmap saved to: {save_path_anomaly}")
+            print(f"Combined image saved to: {save_path_combined}")
 
             plt.show()
+            plt.close()  # 關閉圖形以釋放記憶體
 
             out_mask_averaged = torch.nn.functional.avg_pool2d(
                 out_mask_sm[:, 1:, :, :], 21, stride=1,
