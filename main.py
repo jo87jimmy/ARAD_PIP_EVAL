@@ -63,7 +63,7 @@ def main(obj_names, args):
         img_dim = 256
         student_model = ReconstructiveSubNetwork(in_channels=3,
                                                  out_channels=3,
-                                                 base_width=128)
+                                                 base_width=64)
         model_best_recon_weights_path = './student_model_checkpoints/bottle_best_recon.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_recon_weights_path):
             print(
@@ -78,7 +78,7 @@ def main(obj_names, args):
 
         student_seg_model = DiscriminativeSubNetwork(in_channels=6,
                                                      out_channels=2,
-                                                     base_channels=64)
+                                                     base_channels=32)
         model_best_seg_weights_path = './student_model_checkpoints/bottle_best_seg.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_seg_weights_path):
             print(
