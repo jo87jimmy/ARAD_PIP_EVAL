@@ -151,6 +151,13 @@ def main(obj_names, args):
             for i in range(image.shape[0]):
                 plt.imshow(image[i], cmap='gray')
                 plt.title('Original Image')
+                # 存檔
+                save_path_original = f"{save_path_base}_original_heatmap_{str(i_batch)}.png"
+                plt.savefig(save_path_original,
+                            dpi=300,
+                            bbox_inches='tight',
+                            pad_inches=0.1)
+                print(f"original heatmap saved to: {save_path_original}")
                 plt.show()
             is_normal = sample_batched["has_anomaly"].detach().numpy()[0, 0]
             anomaly_score_gt.append(is_normal)
@@ -178,12 +185,12 @@ def main(obj_names, args):
             plt.title('Predicted Anomaly Heatmap')
 
             # 存檔
-            save_path = f"{save_path_base}_anomaly_heatmap_{str(i_batch)}.png"
-            plt.savefig(save_path,
+            save_path_anomaly = f"{save_path_base}_anomaly_heatmap_{str(i_batch)}.png"
+            plt.savefig(save_path_anomaly,
                         dpi=300,
                         bbox_inches='tight',
                         pad_inches=0.1)
-            print(f"Anomaly heatmap saved to: {save_path}")
+            print(f"Anomaly heatmap saved to: {save_path_anomaly}")
 
             plt.show()
 
