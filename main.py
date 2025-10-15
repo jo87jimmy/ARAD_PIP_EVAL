@@ -4,10 +4,13 @@ from torchvision import transforms as T
 import numpy as np
 import random  # 亂數控制
 import argparse  # 命令列參數處理
+from data_loader import MVTecDRAEM_Test_Visual_Dataset
 from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork
 import torchvision.transforms as transforms
 import cv2
 from PIL import Image  # 雖然 transform 用到了，但直接用 cv2 讀寫更一致
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 
 def setup_seed(seed):
@@ -163,28 +166,9 @@ def main(obj_names, args):
     if not os.path.exists(save_root):
         os.makedirs(save_root)
     print("🔄 開始測試，共有物件類別:", len(obj_names))
-
-    IMG_CHANNELS = 3
-    IMG_SEG_CHANNELS = 6
-    IMG_SEG_CHANNELS_OUT = 2
     for obj_name in obj_names:
-        print(f"▶️測試物件類別: {obj_name}")
-        student_model = ReconstructiveSubNetwork(
-            in_channels=IMG_CHANNELS,
-            out_channels=IMG_CHANNELS,
-            base_width=128,  # 學生重建網路較窄
-        ).to(device)
-
-        student_seg_model = DiscriminativeSubNetwork(
-            in_channels=IMG_SEG_CHANNELS,
-            out_channels=IMG_SEG_CHANNELS_OUT,
-            base_channels=64,  # 學生重建網路較窄
-            out_features=False,
-        ).to(device)
-
-        # 載入訓練好的學生模型權重
-        # 建議載入基於 AUROC 保存的最佳模型
-        # model_weights_path = os.path.join(args.checkpoint_dir, f"{obj_name}.pckl") # ⬅️ 確保這裡的路徑正確
+        img_dim = 256
+        student_model = ReconstructiveSubNetwork(in_channels=3, out_channels=3)
         model_best_recon_weights_path = './student_model_checkpoints/bottle_best_recon.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_recon_weights_path):
             print(
@@ -194,7 +178,11 @@ def main(obj_names, args):
 
         student_model.load_state_dict(
             torch.load(model_best_recon_weights_path, map_location=device))
+        student_model.cuda()
+        student_model.eval()
 
+        student_seg_model = DiscriminativeSubNetwork(in_channels=6,
+                                                     out_channels=2)
         model_best_seg_weights_path = './student_model_checkpoints/bottle_best_seg.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_seg_weights_path):
             print(
@@ -204,46 +192,94 @@ def main(obj_names, args):
 
         student_seg_model.load_state_dict(
             torch.load(model_best_seg_weights_path, map_location=device))
-
-        # --- 2. 設定為評估模式 ---
+        student_seg_model.cuda()
         student_seg_model.eval()
 
-        test_path = os.path.join(args.mvtec_root, obj_name, 'test')  # 測試資料路徑
-        items = ['good', 'broken_large', 'broken_small',
-                 'contamination']  # 測試資料標籤
-        print(f"🔍 測試資料夾：{test_path}，共 {len(items)} 類別")
+        dataset = MVTecDRAEM_Test_Visual_Dataset(
+            args.mvtec_root + obj_name + "/test/",
+            resize_shape=[img_dim, img_dim])
+        dataloader = DataLoader(dataset,
+                                batch_size=1,
+                                shuffle=False,
+                                num_workers=0)
 
-        # 依類別逐張讀取影像並執行推論
-        for item in items:
-            item_path = os.path.join(test_path, item)
+        total_pixel_scores = np.zeros((img_dim * img_dim * len(dataset)))
+        total_gt_pixel_scores = np.zeros((img_dim * img_dim * len(dataset)))
+        mask_cnt = 0
+
+        anomaly_score_gt = []
+        anomaly_score_prediction = []
+
+        display_images = torch.zeros((16, 3, 256, 256)).cuda()
+        display_gt_images = torch.zeros((16, 3, 256, 256)).cuda()
+        display_out_masks = torch.zeros((16, 1, 256, 256)).cuda()
+        display_in_masks = torch.zeros((16, 1, 256, 256)).cuda()
+        cnt_display = 0
+        display_indices = np.random.randint(len(dataloader), size=(16, ))
+
+        for i_batch, sample_batched in enumerate(dataloader):
             # 建立該類別的輸出資料夾
-            output_dir = os.path.join(save_root, obj_name, item)
+            output_dir = os.path.join(save_root, obj_name, i_batch)
             os.makedirs(output_dir, exist_ok=True)  # 確保資料夾存在
 
-            if not os.path.exists(item_path):
-                print(f"⚠️ 警告: 路徑不存在 {item_path}，跳過。")
-                continue
+            gray_batch = sample_batched["image"].cuda()
+            # Convert tensor to a numpy array and move it to the CPU
+            image = gray_batch.permute(0, 2, 3, 1).cpu().numpy()
 
-            img_files = [
-                f for f in os.listdir(item_path)
-                if f.endswith('.png') or f.endswith('.jpg')
-            ]
+            # Display all images in the batch
+            for i in range(image.shape[0]):
+                plt.imshow(image[i], cmap='gray')
+                plt.title('Original Image')
+                plt.show()
+            is_normal = sample_batched["has_anomaly"].detach().numpy()[0, 0]
+            anomaly_score_gt.append(is_normal)
+            true_mask = sample_batched["mask"]
+            true_mask_cv = true_mask.detach().numpy()[0, :, :, :].transpose(
+                (1, 2, 0))
 
-            print(f"\n📂 類別：{item}，共 {len(img_files)} 張影像")
+            gray_rec = student_model(gray_batch)
+            joined_in = torch.cat((gray_rec.detach(), gray_batch), dim=1)
 
-            for img_name in img_files:
-                img_path = os.path.join(item_path, img_name)
-                print(f"🖼️ 處理影像：{img_path}")
+            out_mask = student_seg_model(joined_in)
+            out_mask_sm = torch.softmax(out_mask, dim=1)
 
-                # 去掉副檔名，只取檔名主體
-                base_name, _ = os.path.splitext(img_name)
-                # 設定儲存路徑
-                save_path_base = os.path.join(output_dir, base_name)
+            if i_batch in display_indices:
+                t_mask = out_mask_sm[:, 1:, :, :]
+                display_images[cnt_display] = gray_rec[0].cpu().detach()
+                display_gt_images[cnt_display] = gray_batch[0].cpu().detach()
+                display_out_masks[cnt_display] = t_mask[0].cpu().detach()
+                display_in_masks[cnt_display] = true_mask[0].cpu().detach()
+                cnt_display += 1
 
-                # --- 執行推理 ---
-                anomaly_map, binary_mask = run_inference(
-                    img_path, student_model, student_seg_model, device,
-                    save_path_base)
+            out_mask_cv = out_mask_sm[0, 1, :, :].detach().cpu().numpy()
+            save_path_base = os.path.join(output_dir, obj_name)
+            plt.imshow(out_mask_cv)
+            plt.title('Predicted Anomaly Heatmap')
+
+            # 存檔
+            save_path = f"{save_path_base}_anomaly_heatmap.png"
+            plt.savefig(save_path,
+                        dpi=300,
+                        bbox_inches='tight',
+                        pad_inches=0.1)
+            print(f"Anomaly heatmap saved to: {save_path}")
+
+            plt.show()
+
+            out_mask_averaged = torch.nn.functional.avg_pool2d(
+                out_mask_sm[:, 1:, :, :], 21, stride=1,
+                padding=21 // 2).cpu().detach().numpy()
+            image_score = np.max(out_mask_averaged)
+
+            anomaly_score_prediction.append(image_score)
+
+            flat_true_mask = true_mask_cv.flatten()
+            flat_out_mask = out_mask_cv.flatten()
+            total_pixel_scores[mask_cnt * img_dim * img_dim:(mask_cnt + 1) *
+                               img_dim * img_dim] = flat_out_mask
+            total_gt_pixel_scores[mask_cnt * img_dim * img_dim:(mask_cnt + 1) *
+                                  img_dim * img_dim] = flat_true_mask
+            mask_cnt += 1
         print(f"\n✅ 物件類別 {obj_name} 測試完成！")
     print("\n🎉 所有測試已完成！")
 
