@@ -91,7 +91,8 @@ def main(obj_names, args):
         # 建立資料集和資料載入器
         try:
             dataset = MVTecDRAEM_Test_Visual_Dataset(
-                args.mvtec_root, resize_shape=[img_dim, img_dim])
+                args.mvtec_root + obj_name + "/test/",
+                resize_shape=[img_dim, img_dim])
             print(f"📂 載入資料集路徑:{args.mvtec_root}")
             dataloader = DataLoader(dataset,
                                     batch_size=1,
