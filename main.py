@@ -125,7 +125,7 @@ def main(obj_names, args):
 
         for i_batch, sample_batched in enumerate(dataloader):
             # 建立該類別的輸出資料夾
-            output_dir = os.path.join(save_root, obj_name, i_batch)
+            output_dir = os.path.join(save_root, obj_name, str(i_batch))
             os.makedirs(output_dir, exist_ok=True)  # 確保資料夾存在
 
             gray_batch = sample_batched["image"].cuda()
