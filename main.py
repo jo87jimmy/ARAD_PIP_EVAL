@@ -125,7 +125,8 @@ def main(obj_names, args):
 
         for i_batch, sample_batched in enumerate(dataloader):
             # 建立該類別的輸出資料夾
-            output_dir = os.path.join(save_root, obj_name, str(i_batch))
+            # output_dir = os.path.join(save_root, obj_name, str(i_batch))
+            output_dir = os.path.join(save_root, obj_name)
             print(f"📂 載輸出資料夾路徑:{output_dir}")
             os.makedirs(output_dir, exist_ok=True)  # 確保資料夾存在
 
@@ -164,7 +165,7 @@ def main(obj_names, args):
             plt.title('Predicted Anomaly Heatmap')
 
             # 存檔
-            save_path = f"{save_path_base}_anomaly_heatmap.png"
+            save_path = f"{save_path_base}_anomaly_heatmap_{str(i_batch)}.png"
             plt.savefig(save_path,
                         dpi=300,
                         bbox_inches='tight',
