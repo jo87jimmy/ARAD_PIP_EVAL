@@ -91,21 +91,32 @@ def main(obj_names, args):
         # 建立資料集和資料載入器
         try:
             path = args.mvtec_root + "/" + obj_name + "/test/"
+            print(f"📂 載入資料集路徑:{path}")
+
+            # 检查test目录下的子目录
+            subdirs = ['broken_large', 'broken_small', 'contamination', 'good']
+            existing_subdirs = []
+
+            for subdir in subdirs:
+                subdir_path = os.path.join(path, subdir)
+                if os.path.exists(subdir_path) and os.path.isdir(subdir_path):
+                    existing_subdirs.append(subdir)
+                    print(f"✅ 找到類別: {subdir}")
+
+            if not existing_subdirs:
+                raise Exception(f"在 {path} 中未找到任何測試類別目錄")
+
+            # 假设数据集类会自动处理这些子目录
             dataset = MVTecDRAEM_Test_Visual_Dataset(
                 path, resize_shape=[img_dim, img_dim])
-            print(f"📂 載入資料集路徑:{path}")
+
             dataloader = DataLoader(dataset,
                                     batch_size=1,
                                     shuffle=False,
                                     num_workers=0)
-        except Exception as e:
-            print(f"❌ 載入資料集時發生錯誤: {e}，路徑:{args.mvtec_root}")
-            continue
 
-        # 檢查 dataloader 是否為空
-        if len(dataloader) == 0:
-            print(f"❌ 警告: {obj_name} 的 dataloader 為空，跳過此類別")
-            continue
+        except Exception as e:
+            print(f"❌ 錯誤: {e}")
 
         print(f"📊 資料集大小: {len(dataset)} 張圖片")
 
