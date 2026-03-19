@@ -65,7 +65,7 @@ def main(obj_names, args):
                                                  out_channels=3,
                                                  base_width=64)
         if args.dataset == 'visa':
-            model_best_recon_weights_path = './student_model_checkpoints/' + 'transistor' + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
+            model_best_recon_weights_path = './student_model_checkpoints/' + 'hazelnut' + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
         else:
             model_best_recon_weights_path = './student_model_checkpoints/' + obj_name + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_recon_weights_path):
@@ -83,7 +83,7 @@ def main(obj_names, args):
                                                      out_channels=2,
                                                      base_channels=32)
         if args.dataset == 'visa':
-            model_best_seg_weights_path = './student_model_checkpoints/' + 'transistor' + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
+            model_best_seg_weights_path = './student_model_checkpoints/' + 'hazelnut' + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
         else:
             model_best_seg_weights_path = './student_model_checkpoints/' + obj_name + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_seg_weights_path):
