@@ -137,6 +137,105 @@ class MVTecDRAEM_Test_Visual_Dataset(Dataset):
         return sample
 
 
+class VisADRAEM_Test_Visual_Dataset(Dataset):
+    """
+    VisA Dataset 的測試視覺化資料集
+    目錄結構:
+        {root_dir}/Data/Images/Anomaly/  ← 缺陷圖片
+        {root_dir}/Data/Images/Normal/   ← 正常圖片
+        {root_dir}/Data/Masks/           ← ground truth mask (對應 Anomaly)
+    """
+
+    def __init__(self, root_dir, resize_shape=None):
+        self.root_dir = root_dir
+        self.resize_shape = resize_shape
+
+        # 收集 Normal 和 Anomaly 圖片
+        img_base = os.path.join(root_dir, "Data", "Images")
+        normal_dir = os.path.join(img_base, "Normal")
+        anomaly_dir = os.path.join(img_base, "Anomaly")
+        self.mask_dir = os.path.join(root_dir, "Data", "Masks")
+
+        self.images = []
+        self.labels = []  # 0=Normal, 1=Anomaly
+
+        # 收集正常圖片
+        if os.path.exists(normal_dir):
+            for ext in ('*.png', '*.JPG', '*.jpg'):
+                for p in sorted(glob.glob(os.path.join(normal_dir, ext))):
+                    self.images.append(p)
+                    self.labels.append(0)
+
+        # 收集缺陷圖片
+        if os.path.exists(anomaly_dir):
+            for ext in ('*.png', '*.JPG', '*.jpg'):
+                for p in sorted(glob.glob(os.path.join(anomaly_dir, ext))):
+                    self.images.append(p)
+                    self.labels.append(1)
+
+    def __len__(self):
+        return len(self.images)
+
+    def transform_image(self, image_path, mask_path):
+        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if mask_path is not None:
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        else:
+            mask = np.zeros((image.shape[0], image.shape[1]))
+        if self.resize_shape is not None:
+            image = cv2.resize(image,
+                               dsize=(self.resize_shape[1],
+                                      self.resize_shape[0]))
+            mask = cv2.resize(mask,
+                              dsize=(self.resize_shape[1],
+                                     self.resize_shape[0]))
+
+        image = image / 255.0
+        mask = mask / 255.0
+
+        image = np.array(image).reshape(
+            (image.shape[0], image.shape[1], 3)).astype(np.float32)
+        mask = np.array(mask).reshape(
+            (mask.shape[0], mask.shape[1], 1)).astype(np.float32)
+
+        image = np.transpose(image, (2, 0, 1))
+        mask = np.transpose(mask, (2, 0, 1))
+        return image, mask
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_path = self.images[idx]
+        label = self.labels[idx]
+        file_name = os.path.basename(img_path)
+        file_stem = os.path.splitext(file_name)[0]
+
+        if label == 0:
+            # Normal: 沒有 mask
+            image, mask = self.transform_image(img_path, None)
+            has_anomaly = np.array([0], dtype=np.float32)
+        else:
+            # Anomaly: 從 Masks 資料夾找對應 mask
+            mask_path = os.path.join(self.mask_dir, file_stem + ".png")
+            if not os.path.exists(mask_path):
+                mask_path = os.path.join(self.mask_dir, file_stem + "_mask.png")
+            if not os.path.exists(mask_path):
+                # 找不到 mask 時用空 mask
+                mask_path = None
+            image, mask = self.transform_image(img_path, mask_path)
+            has_anomaly = np.array([1], dtype=np.float32)
+
+        sample = {
+            'image': image,
+            'has_anomaly': has_anomaly,
+            'mask': mask,
+            'idx': idx
+        }
+
+        return sample
+
+
 class MVTecDRAEMTrainDataset(Dataset):
 
     def __init__(self, root_dir, anomaly_source_path, resize_shape=None):
