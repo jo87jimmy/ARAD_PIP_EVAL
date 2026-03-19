@@ -4,7 +4,7 @@ from torchvision import transforms as T
 import numpy as np
 import random  # 亂數控制
 import argparse  # 命令列參數處理
-from data_loader import MVTecDRAEM_Test_Visual_Dataset
+from data_loader import MVTecDRAEM_Test_Visual_Dataset, VisADRAEM_Test_Visual_Dataset
 from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork
 import torchvision.transforms as transforms
 import cv2
@@ -64,7 +64,10 @@ def main(obj_names, args):
         student_model = ReconstructiveSubNetwork(in_channels=3,
                                                  out_channels=3,
                                                  base_width=64)
-        model_best_recon_weights_path = './student_model_checkpoints/' + obj_name + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
+        if args.dataset == 'visa':
+            model_best_recon_weights_path = './student_model_checkpoints/' + 'transistor' + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
+        else:
+            model_best_recon_weights_path = './student_model_checkpoints/' + obj_name + '_best_recon.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_recon_weights_path):
             print(
                 f"❌ 錯誤: 未找到模型權重檔案: {model_best_recon_weights_path}，請檢查路徑或訓練是否完成。"
@@ -79,7 +82,10 @@ def main(obj_names, args):
         student_seg_model = DiscriminativeSubNetwork(in_channels=6,
                                                      out_channels=2,
                                                      base_channels=32)
-        model_best_seg_weights_path = './student_model_checkpoints/' + obj_name + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
+        if args.dataset == 'visa':
+            model_best_seg_weights_path = './student_model_checkpoints/' + 'transistor' + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
+        else:
+            model_best_seg_weights_path = './student_model_checkpoints/' + obj_name + '_best_seg.pckl'  # ⬅️ 我的的權重路徑
         if not os.path.exists(model_best_seg_weights_path):
             print(
                 f"❌ 錯誤: 未找到模型權重檔案: {model_best_seg_weights_path}，請檢查路徑或訓練是否完成。"
@@ -93,24 +99,33 @@ def main(obj_names, args):
 
         # 建立資料集和資料載入器
         try:
-            path = args.mvtec_root + "/" + obj_name + "/test/"
+            if args.dataset == 'visa':
+                data_root = args.visa_root
+            else:
+                data_root = args.mvtec_root
+            path = data_root + "/" + obj_name + "/test/"
             print(f"📂 載入資料集路徑:{path}")
 
-            # 检查test目录下的子目录
-            subdirs = ['broken_large', 'broken_small', 'contamination', 'good']
-            existing_subdirs = []
-
-            for subdir in subdirs:
-                subdir_path = os.path.join(path, subdir)
-                if os.path.exists(subdir_path) and os.path.isdir(subdir_path):
-                    existing_subdirs.append(subdir)
+            # 檢查test目錄下的子目錄
+            if os.path.exists(path):
+                existing_subdirs = [
+                    d for d in os.listdir(path)
+                    if os.path.isdir(os.path.join(path, d))
+                ]
+                for subdir in existing_subdirs:
                     print(f"✅ 找到類別: {subdir}")
+            else:
+                existing_subdirs = []
 
             if not existing_subdirs:
                 raise Exception(f"在 {path} 中未找到任何測試類別目錄")
 
-            dataset = MVTecDRAEM_Test_Visual_Dataset(
-                path, resize_shape=[img_dim, img_dim])
+            if args.dataset == 'visa':
+                dataset = VisADRAEM_Test_Visual_Dataset(
+                    path, resize_shape=[img_dim, img_dim])
+            else:
+                dataset = MVTecDRAEM_Test_Visual_Dataset(
+                    path, resize_shape=[img_dim, img_dim])
 
             dataloader = DataLoader(dataset,
                                     batch_size=1,
@@ -232,10 +247,19 @@ if __name__ == "__main__":
                         default=-2,
                         required=False,
                         help='GPU ID (-2: auto-select, -1: CPU)')
+    parser.add_argument('--dataset',
+                        type=str,
+                        default='mvtec',
+                        choices=['mvtec', 'visa'],
+                        help='Dataset to use: mvtec or visa')
     parser.add_argument('--mvtec_root',
                         type=str,
                         default='./mvtec',
                         help='Path to the MVTec dataset root directory')
+    parser.add_argument('--visa_root',
+                        type=str,
+                        default='./visa',
+                        help='Path to the VisA dataset root directory')
     parser.add_argument('--checkpoint_dir',
                         type=str,
                         default='./save_files',
@@ -248,17 +272,27 @@ if __name__ == "__main__":
         args.gpu_id = get_available_gpu()
         print(f"自動選擇 GPU: {args.gpu_id}")
 
-    obj_batch = [['capsule'], ['bottle'], ['carpet'], ['leather'], ['pill'],
-                 ['transistor'], ['tile'], ['cable'], ['zipper'],
-                 ['toothbrush'], ['metal_nut'], ['hazelnut'], ['screw'],
-                 ['grid'], ['wood']]
+    # MVTec 物件類別
+    mvtec_obj_batch = [['capsule'], ['bottle'], ['carpet'], ['leather'], ['pill'],
+                       ['transistor'], ['tile'], ['cable'], ['zipper'],
+                       ['toothbrush'], ['metal_nut'], ['hazelnut'], ['screw'],
+                       ['grid'], ['wood']]
+
+    # VisA 物件類別
+    visa_obj_batch = [['candle'], ['capsules'], ['cashew'], ['chewinggum'],
+                      ['fryum'], ['macaroni1'], ['macaroni2'], ['pcb1'],
+                      ['pcb2'], ['pcb3'], ['pcb4'], ['pipe_fryum']]
+
+    if args.dataset == 'visa':
+        obj_batch = visa_obj_batch
+        obj_list = [item[0] for item in visa_obj_batch]
+        print(f"📦 使用 VisA 資料集，共 {len(obj_list)} 個物件類別")
+    else:
+        obj_batch = mvtec_obj_batch
+        obj_list = [item[0] for item in mvtec_obj_batch]
+        print(f"📦 使用 MVTec 資料集，共 {len(obj_list)} 個物件類別")
 
     if int(args.obj_id) == -1:
-        obj_list = [
-            'capsule', 'bottle', 'carpet', 'leather', 'pill', 'transistor',
-            'tile', 'cable', 'zipper', 'toothbrush', 'metal_nut', 'hazelnut',
-            'screw', 'grid', 'wood'
-        ]
         picked_classes = obj_list
     else:
         picked_classes = obj_batch[int(args.obj_id)]
